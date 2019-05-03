@@ -40,6 +40,9 @@
 + iptables: Only allow connections from cloudflare.
 + Nginx and Gunicorn setup and config.
 + Logwatch and tiger, lynis etc... or any other HIDS.
++ Zabbix: local_infile permission and mysqld config --> Is this config necessary?
++ Zabbix: subdomain, ssl, lets encrypt docs.
++ Zabbix: Zabbix agent in the client machine.
 + Add references.
 
 ## Create a non-root user
@@ -509,7 +512,7 @@ Password expiration config to be added.
 
 ## Secure Shared Memory
 For the first field in `fstab`, which is the device/filesystem, quoting from the `man page`:
-"For filesystems with no storage, any string can be used, and  will  show  up  in df  output, for example. Typical usage is `proc' for procfs; `mem', `none', or `tmpfs' for tmpfs. ". 
+"For filesystems with no storage, any string can be used, and  will  show  up  in df  output, for example. Typical usage is `proc' for procfs; `mem', `none', or `tmpfs' for tmpfs. ".
 Edit `/etc/fstab` and add the following to the end to mount in read-only mode:
 ```
 # Secure shared memory
@@ -631,9 +634,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON db_name.* TO 'sqluser_name_1'@'mysql_cli
 FLUSH PRIVILEGES;
 GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE, CREATE TEMPORARY TABLES, DROP, EVENT, EXECUTE, INDEX, LOCK TABLES, REFERENCES, TRIGGER ON db_name.* TO 'sqluser_name_2'@'mysql_client_IP';
 FLUSH PRIVILEGES;
-exit
+EXIT;
 ```
-+ mysqld should never be run as linux root user. Check config files in mysql `/etc/my.cnf`, `/etc/mysql/conf.d/`, `/etc/mysql/my.cnf` and `/etc/mysql/mysql.conf.d/`. mysqld uses only the first `--user` option. So if the first config file that is being read has this option, **subsequent config files won't be able to override this setting.**Assuming `/etc/my.cnf` is the first existing config being read, include:
++ mysqld should never be run as linux root user. Check config files in mysql `/etc/my.cnf`, `/etc/mysql/conf.d/`, `/etc/mysql/my.cnf` and `/etc/mysql/mysql.conf.d/`. mysqld uses only the first `--user` option. So if the first config file that is being read has this option, **subsequent config files won't be able to override this setting.** Assuming `/etc/my.cnf` is the first existing config being read, include:
 ```
 [mysqld]
 user=mysql
@@ -683,3 +686,52 @@ FLUSH PRIVILEGES;
 
 ## Determine and disable running services
 Check network services: `sudo ss -atpu`. Check system services and daemons: `sudo systemctl list-units --all`
+
+## Zabbix
+This config assumes that the MySQL database for Zabbix is on the same machine. This is the simplest solution as this server is to be used only for monitoring. Zabbix server requires LAMP stack (Linux, Apache, MySQL, PHP). First, install and config LAMP on the machine that will monitor.
+
+### Install and Config LAMP stack
+First do the security config: SSH, iptables, sysctl etc.
+
+```shell
+sudo apt-get update
+sudo apt-get install apache2 mysql-server php libapache2-mod-php php-mysql
+```
+Edit `/etc/apache2/mods-enabled/dir.conf`, move `index.php` to the first position after `DirectoryIndex` so that Apache will first look for PHP files.
+
+Restart and check:
+```shell
+sudo systemctl restart apache2
+sudo systemctl status apache2
+```
+
+
+### Zabbix Server
+On the machine that will monitor:
+```shell
+sudo apt update
+sudo apt install zabbix-server-mysql zabbix-frontend-php
+```
+Configure MySQL before going any further. Since MySQL is on the same machine, omit the MySQL configs that changes settings related to `SSL/TLS` since it will be local. Also, do not forget to change settings according to `localhost` from `REMOTE_IP`, and you may leave the `Port` with the default config.
+Create a new database for Zabbix, create a Zabbix user for MySQL, set up the schema and import the data into the Zabbix database:
+```
+mysql -uroot -p
+mysql> CREATE DATABASE zabbix CHARACTER SET utf8 collate utf8_bin;
+mysql> CREATE USER 'zabbix'@'localhost' IDENTIFIED BY 'your_zabbix_mysql_password';
+mysql> FLUSH PRIVILEGES;
+mysql> GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE, CREATE TEMPORARY TABLES, DROP, EVENT, EXECUTE, INDEX, LOCK TABLES, REFERENCES, TRIGGER ON zabbix.* TO 'zabbix'@'localhost';
+mysql> FLUSH PRIVILEGES;
+mysql> EXIT;
+zcat /usr/share/doc/zabbix-server-mysql/create.sql.gz | mysql -uzabbix -p zabbix
+```
+Edit `/etc/zabbix/zabbix_server.conf` and type `DBPassword` and `DBName`. `DBHost` already default to `localhost`.
+Edit `sudo nano /etc/zabbix/apache.conf` and enter correct `php_value date.timezone`.
+Restart, check and enable at startup:
+```shell
+sudo systemctl restart apache2
+sudo systemctl start zabbix-server
+sudo systemctl status zabbix-server
+sudo systemctl enable zabbix-server
+```
+
+The rest is GUI config, go to `http://zabbix_server_domain_or_IP/zabbix/`. Check <https://www.digitalocean.com/community/tutorials/how-to-install-and-configure-zabbix-to-securely-monitor-remote-servers-on-ubuntu-18-04> if you have questions for GUI config.
