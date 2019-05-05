@@ -23,6 +23,10 @@
     + [General and Security Config](#general-and-security-config)
     + [Check the Config and Other Settings](#check-the-config-and-other-settings)
     + [Last Touch](#last-touch)
++ [Zabbix](#Zabbix)
+  + [Install and Config LAMP Stack](#install-and-config-lamp-stack)
+  + [Zabbix Server](#zabbix-server)
+
 
 ## Work in Progress
 + In SSH daemon config: `AllowStreamLocalForwarding no  # it does not exist in the man page`
@@ -34,15 +38,21 @@
 + DMARC: Check how to implement a DMARC record.
 + rkhunter: Re-check docs
 + Mysql: Better error handling and character encoding stuff
++ Mysql: Host vs bind-address?
++ Mysql: bind_address or bind-address?
++ Mysql: might wanna remove tls version.
 + Kernel: Auto restart at kernel panic
 + Updates: Unattended upgrades for security patches (or should it be unattended???).
 + iptables: Rate limiting and cloudflare dilemma, since they do not forward client IPs.
 + iptables: Only allow connections from cloudflare.
++ iptables: limit logging
 + Nginx and Gunicorn setup and config.
 + Logwatch and tiger, lynis etc... or any other HIDS.
 + Zabbix: local_infile permission and mysqld config --> Is this config necessary?
 + Zabbix: subdomain, ssl, lets encrypt docs.
 + Zabbix: Zabbix agent in the client machine.
++ Zabbix: Apache security
++ Zabbix: Check https://www.zabbix.com/documentation/4.0/manual/installation/requirements/best_practices
 + Add references.
 
 ## Create a non-root user
@@ -157,7 +167,7 @@ sudo iptables -L -nv  # list numerically and in verbose mode
 sudo ip6tables -L -nv
 ```
 Below is an through example, keep the necessary lines for the server type of choice.
-**Note**: MySQL listens for 3306, PostgreSQL listens for 5432.
+**Note**: MySQL listens on 3306, PostgreSQL on 5432, Zabbix agent on 10050.
 ```shell
 # Block NULL packages
 sudo iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
@@ -165,39 +175,41 @@ sudo iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
 sudo iptables -A INPUT -p tcp --tcp-flags ALL FIN,PSH,URG -j DROP
 sudo iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
 # Drop all new TCP conn that are not SYN (SYN flood)
-iptables -A INPUT -p tcp ! --syn -m conntrack --ctstate NEW -j DROP
+sudo iptables -A INPUT -p tcp ! --syn -m conntrack --ctstate NEW -j DROP
 # Drop INVALID packages
 sudo iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
 # Rate limit new tcp conn (SYN flood)
-iptables -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit <LIMIT_1>/second --limit-burst <LIMIT_2> -j ACCEPT
+sudo iptables -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit <LIMIT_1>/second --limit-burst <LIMIT_2> -j ACCEPT
 # SMURF attack. This is not necessary if blocking all icmp
 sudo iptables -A INPUT -p icmp -m limit --limit <LIMIT_3>/second --limit-burst <LIMIT_4> -j ACCEPT
 
 sudo iptables -A INPUT -i lo -j ACCEPT
-sudo iptables -A INPUT -p tcp -s <SOURCE_IP> --dport <SSH_PORT> -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 80 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+sudo iptables -A INPUT -i <INTERFACE> -p tcp -s <SOURCE_IP> --dport <SSH_PORT> -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+sudo iptables -A INPUT -i <INTERFACE> -p tcp --dport 80 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+sudo iptables -A INPUT -i <INTERFACE> -p tcp --dport 443 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
 sudo iptables -A INPUT -i <INTERFACE> -p tcp -s <SOURCE_IP> --dport 3306 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+sudo iptables -A INPUT -i <INTERFACE> -p tcp -s <SOURCE_IP> --dport 10050 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
 
 sudo iptables -A OUTPUT -o lo -j ACCEPT
-sudo iptables -A OUTPUT -p tcp --sport <SSH_PORT> -m conntrack --ctstate ESTABLISHED -j ACCEPT
-sudo iptables -A OUTPUT -p tcp --sport 80 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-sudo iptables -A OUTPUT -p tcp --sport 443 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -o <INTERFACE> -p tcp --sport <SSH_PORT> -m conntrack --ctstate ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -o <INTERFACE> -p tcp --sport 80 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -o <INTERFACE> -p tcp --sport 443 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 sudo iptables -A OUTPUT -o <INTERFACE> -p tcp --sport 3306 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -o <INTERFACE> -p tcp --sport 10050 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 
 sudo iptables -P INPUT DROP
 sudo iptables -P OUTPUT DROP
 sudo iptables -P FORWARD DROP
 ```
-
-Note on loadbalancers (Linode)
+Save the changes, otherwise lost on reboot (do this after every addition/removal):
+```shell
+sudo dpkg-reconfigure iptables-persistent
+reboot
 ```
-# Allow incoming Longview connections from longview.linode.com
--A INPUT -s 96.126.119.66 -m state --state NEW -j ACCEPT
+Check by `sudo iptables -L -nv`. Rules should be under `/etc/iptables/rules.v4` and `/etc/iptables/rules.v6`.
 
-# Allow incoming NodeBalancer connections
--A INPUT -s 192.168.255.0/24 -m state --state NEW -j ACCEPT
-```
+**IMPORTANT:** Do similarly (e.g. change IP4-type addresses to IP6) for `ip6tables` for IPv6 rules.
+
 Also check:
 <http://www.robertopasini.com/index.php/2-uncategorised/650-linux-iptables-block-common-attacks>
 <https://support.hostway.com/hc/en-us/articles/360002236980-How-To-Set-Up-a-Basic-Iptables-Firewall-on-Centos-6>
@@ -645,12 +657,25 @@ user=mysql
 
 ```
 [mysqld]
-bind-address=IPv4_or_IPv6_address  # default is 127.0.0.1
+bind_address="IPv4_or_IPv6_address"  # default is 127.0.0.1
+sql-mode="TRADITIONAL"
+transaction-isolation="READ-COMMITTED"
+default-storage-engine="InnoDB"
+character_set_server="utf8mb4"
+collation_server="utf8mb4_unicode_ci"
+character-set-client-handshake=OFF
 local_infile=0  # prevent reading files on the local filesystem even if the user has FILE privilege
 # Require clients to connect either using SSL
 # or through a local socket file
 require_secure_transport=ON
 symbolic-links=0
+tls_version="TLSv1.2"
+
+[client]
+bind-address="IPv4_or_IPv6_address"
+default-character-set="utf8mb4"
+# prevent reading files on the local filesystem even if the user has FILE privilege
+local_infile=0
 tls_version=TLSv1.2
 ```
 + Clear and disable the command history in `~/.mysql_history` since it might contain sensitive info:
@@ -707,13 +732,14 @@ sudo systemctl status apache2
 
 
 ### Zabbix Server
-On the machine that will monitor:
++ On the machine that will monitor:
 ```shell
 sudo apt update
 sudo apt install zabbix-server-mysql zabbix-frontend-php
 ```
-Configure MySQL before going any further. Since MySQL is on the same machine, omit the MySQL configs that changes settings related to `SSL/TLS` since it will be local. Also, do not forget to change settings according to `localhost` from `REMOTE_IP`, and you may leave the `Port` with the default config.
-Create a new database for Zabbix, create a Zabbix user for MySQL, set up the schema and import the data into the Zabbix database:
++ Configure MySQL before going any further. Since MySQL is on the same machine, omit the MySQL configs that changes settings related to `SSL/TLS` since it will be local. Also, do not forget to change settings according to `localhost` from `REMOTE_IP`, and you may leave the `Port` with the default config.
+**IMPORTANT:** Although the true UTF8 encoding is utf8mb4 for MySQL (and utf8 is an alias for utf8mb3 in MySQL 5.7), the character set used below is utf8 and it is retrieved from Zabbix docs. Thus, it is not wise to change it according to the MySQL part of this documentation, in which it is suggested to use utf8mb4.
++ Create a new database for Zabbix, create a Zabbix user for MySQL, set up the schema and import the data into the Zabbix database:
 ```
 mysql -uroot -p
 mysql> CREATE DATABASE zabbix CHARACTER SET utf8 collate utf8_bin;
@@ -724,9 +750,19 @@ mysql> FLUSH PRIVILEGES;
 mysql> EXIT;
 zcat /usr/share/doc/zabbix-server-mysql/create.sql.gz | mysql -uzabbix -p zabbix
 ```
-Edit `/etc/zabbix/zabbix_server.conf` and type `DBPassword` and `DBName`. `DBHost` already default to `localhost`.
-Edit `sudo nano /etc/zabbix/apache.conf` and enter correct `php_value date.timezone`.
-Restart, check and enable at startup:
++ Edit `/etc/zabbix/zabbix_server.conf` and include:
+```
+DBHost=localhost
+DBName=zabbix
+DBUser=zabbix
+DBPassword=<password>
+# Only listen on localhost
+# We do not need push from zabbix agents
+ListenIP=127.0.0.1
+```
++ Add appropriate `iptables` rules.
++ Edit `sudo nano /etc/zabbix/apache.conf` and enter correct `php_value date.timezone`.
++ Restart, check and enable at startup:
 ```shell
 sudo systemctl restart apache2
 sudo systemctl start zabbix-server
@@ -734,4 +770,47 @@ sudo systemctl status zabbix-server
 sudo systemctl enable zabbix-server
 ```
 
-The rest is GUI config, go to `http://zabbix_server_domain_or_IP/zabbix/`. Check <https://www.digitalocean.com/community/tutorials/how-to-install-and-configure-zabbix-to-securely-monitor-remote-servers-on-ubuntu-18-04> if you have questions for GUI config.
+The rest is GUI config, **but before that configure Zabbix agent in the target machines**. The following URL should now be active: `http://zabbix_server_domain_or_IP/zabbix/`. Check <https://www.digitalocean.com/community/tutorials/how-to-install-and-configure-zabbix-to-securely-monitor-remote-servers-on-ubuntu-18-04> if you have questions for GUI config.
+
+### Zabbix Agent
++ Install it into the target machines:
+```shell
+sudo apt-get update
+sudo apt-get install zabbix-agent
+```
++ Encrypt the connection between the agent and the Zabbix server. **Important:** Check the pre-shared key (PSK) size limits from [Zabbix PSK Docs](https://www.zabbix.com/documentation/4.0/manual/encryption/using_pre_shared_keys). Do not forget to choose your version. Depending on the crypto lib, max allowed PSK size differs, use the max. to determine which lib your version depends on, check the dependencies of the apt package. Generate a PSK: `sudo openssl rand -hex <NUM_BYTES> > /etc/zabbix/zabbix_agentd.psk` (openssl here is independent of the lib used when compiling Zabbix). Replace `<NUM_BYTES>` with an allowed size for your crypto lib. It could be 256 bytes for example.
++ Edit `/etc/zabbix/zabbix_agentd.conf` to include (**Remember to change `TLSPSKIdentity` if the same name exists on another machine**):
+```
+# Set Server to acccept only from that IP
+# Pay attention to selecting the IP of the server on the private network interface
+Server=zabbix_server_ip_address
+# ListenIP is the machine the agent is running
+# Pay attention to selecting the IP on the private network interface
+ListenIP=ip_on_priv_interface
+EnableRemoteCommands=0
+TLSConnect=psk
+TLSAccept=psk
+TLSPSKFile=/etc/zabbix/zabbix_agentd.psk
+TLSPSKIdentity=PSK001
+```
++ Check the file permissions on:
+```
+ls -l /etc/zabbix/zabbix_agentd.conf
+ls -l /etc/zabbix/zabbix_agentd.psk
+```
+Ideally, make `zabbix_agentd.psk` (created by you) file permissions same as `zabbix_agentd.conf`.
++ Restart
+```shell
+sudo systemctl restart zabbix-agent
+sudo systemctl enable zabbix-agent
+sudo systemctl status zabbix-agent
+```
++ Add appropriate `iptables` rules. By default, Zabbix agent waits for connections on port `10050` from Zabbix server. Also configure the Zabbix server machine to allow outgoing connections on that port. Do not forget to specify the network interface for private networking.
++ Go to `http://zabbix_server_domain_or_IP/zabbix/` and configure a new host, with the newly generated PSK. Then configure notifications etc. from the GUI.
+
+## Useful Commands
+```shell
+hostname -A  # display all FQDN
+hostname -I  # display all network addresses of the host
+netstat -i  # show network interfaces
+```
