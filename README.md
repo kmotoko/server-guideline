@@ -1,6 +1,7 @@
 ## Table of Contents
 + [Work in Progress](#work-in-progress)
 + [Create a non-root user](#create-a-non-root-user)
++ [Create High Entropy](#create-high-entropy)
 + [Network Config](#network-config)
 + [SSH](#ssh)
     + [SSH keys](#ssh-keys)
@@ -19,6 +20,7 @@
 + [SSL/TLS security](#ssl/tls-security)
 + [Rootkit](#rootkit)
     + [rkhunter](#rkhunter)
++ [Nginx](#nginx)
 + [MySQL](#mysql)
     + [Initial Setup](#initial-setup)
     + [General and Security Config](#general-and-security-config)
@@ -60,6 +62,27 @@ adduser example_user
 adduser example_user sudo  # add to sudoers
 exit  # disconnect from server
 ssh example_user@xxx.x.xx.xx  # log back in as limited user
+```
+
+## Create High Entropy
+**Important:** There are many online tutorials/answers to increase entropy in headless environments. Many are not reliable in cryptographic terms, make sure that the source is trusted and validate the method from different sources. Arch wiki is an excellent source for this topic.
+
+Needed for any sort of encryption, SSL/TLS... In virtualized headless environments, good-quality high entropy is problematic. `haveged` and/or `rng-tools` can be used to create entropy in headless environments. However, `haveged` should be used very carefully as it is not suitable for virtualized environments. Arch wiki recommends that:
+> Unless you have a specific reason to not trust any hardware random number generator on your system, you should try to use them with the rng-tools first and if it turns out not to be enough (or if you do not have a hardware random number generator available), then use Haveged.
+
+So try `rng-tools` first. Before doing anything, check available entropy to get an idea: `cat /proc/sys/kernel/random/entropy_avail`.
+Then:
+```
+sudo apt-get install rng-tools
+sudo systemctl start rngd.service
+sudo systemctl enable rngd.service
+```
+Check if `rngd` has a source of entropy: `sudo rngd -v`. If the cluster does not have any external TPM chip, it is normal to see `Unable to open file: /dev/tpm0`. If you see `DRNG` entropy source, it is an Intel ‘hardware approach to high-quality, high-performance entropy and random number generation’ using the RDRAND processor instruction, which is good. Check if your processor has RDRAND instruction by `cat /proc/cpuinfo | grep rdrand`. If everything is fine move on.
+
+Check if it is working correctly. The first command should give instantaneous output when `rng-tools` working correctly. Without it, outputted `dd` speed would be extremely low (<10KB/s). The second command executes a test of 1000 passes, you should get a maximum of 1-2 failures.
+```
+dd if=/dev/random of=/dev/null bs=1024 count=1 iflag=fullblock
+rngtest -c 1000 </dev/random
 ```
 
 ## Network Config
