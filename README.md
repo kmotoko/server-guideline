@@ -9,6 +9,7 @@
     + [SSH client config](#ssh-client-config)
 + [Firewall](#firewall)
 + [Prevent IP Spoofing](#prevent-ip-spoofing)
++ [Disable Unused Filesystems](#disable-unused-filesystems)
 + [Sysctl Config](#sysctl-config)
 + [Mandatory Access Control](#mandatory-access-control)
 + [Linux User Account Management](#linux-user-account-management)
@@ -72,10 +73,11 @@ Needed for any sort of encryption, SSL/TLS... In virtualized headless environmen
 
 So try `rng-tools` first. Before doing anything, check available entropy to get an idea: `cat /proc/sys/kernel/random/entropy_avail`.
 Then:
-```
+```shell
 sudo apt-get install rng-tools
-sudo systemctl start rngd.service
-sudo systemctl enable rngd.service
+# might be called rngd.service
+sudo systemctl start rng-tools.service
+sudo systemctl enable rng-tools.service
 ```
 Check if `rngd` has a source of entropy: `sudo rngd -v`. If the cluster does not have any external TPM chip, it is normal to see `Unable to open file: /dev/tpm0`. If you see `DRNG` entropy source, it is an Intel ‘hardware approach to high-quality, high-performance entropy and random number generation’ using the RDRAND processor instruction, which is good. Check if your processor has RDRAND instruction by `cat /proc/cpuinfo | grep rdrand`. If everything is fine move on.
 
@@ -107,7 +109,7 @@ Log out and log back in.
 Note end-of-validation of the certificates, so that you can renew it before expiration.
 ### SSH daemon config
 In the server, create a group to hold users that have ssh access:
-```
+```shell
 sudo groupadd ssh-user
 sudo usermod -a -G ssh-user <username>
 ```
@@ -280,6 +282,19 @@ Change it to:
 ```
 Also check IP spoofing prevention in IPtables and networking layer.
 Also remember that `/etc/nsswitch.conf` takes precendence over `host.conf` if `glibc > 2.4` for controlling the `order` of host lookups.
+
+## Disable Unused Filesystems
+Create `/etc/modprobe.d/dev-sec.conf` file with the following contents:
+```
+install cramfs /bin/true
+install freevxfs /bin/true
+install jffs2 /bin/true
+install hfs /bin/true
+install hfsplus /bin/true
+install squashfs /bin/true
+install udf /bin/true
+```
+Do not disable `vfat` as it is necessary for EFI.
 
 ## Sysctl Config
 Change the kernel parameters at runtime. **Note:** From version 207 and 21x, systemd only applies settings from `/etc/sysctl.d/*.conf`. If you had customized `/etc/sysctl.conf`, you need to rename it as `/etc/sysctl.d/99-sysctl.conf`. If you had e.g. `/etc/sysctl.d/foo`, you need to rename it to `/etc/sysctl.d/foo.conf`.
@@ -489,6 +504,16 @@ net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.route.flush = 1
 net.ipv6.route.flush = 1
 ```
+
+Before appyling the settings, disable `apport` automatic crash report generation (at least in Ubuntu 18.04).
+This service overrides `fs.suid_dumpable` value. Thus do:
+```
+sudo systemctl stop apport.service
+sudo systemctl disable apport.service
+sudo systemctl mask apport.service
+```
+To be double sure, also change the `enabled` value to `0` in `/etc/default/apport`.
+
 Use `sudo sysctl --system` to apply settings. **Important:** Check and make sure if the new config sticks after reboot (`sudo sysctl --all`).
 
 **Note**: `kernel.exec-shield` and `kernel.maps_protect` keys are extremely important. However, `kernel.maps_protect` became non-optional in kernel 2.6.27 and `kernel.exec-shield` exists in RedHat/CentOS, currently not in Debain 9 at least. But you can still do `kernel.randomize_va_space = 2` for Debian/Ubuntu. Do not change `vm.mmap_min_addr` without extreme care as it has security implications, as long as you are using a fairly modern kernel (includes Debian 9, Ubuntu 16.04 and newer) the default should be fine. Also, `fs.file-max` should be fine with the defaults.
@@ -1042,4 +1067,5 @@ sudo systemctl status zabbix-agent
 hostname -A  # display all FQDN
 hostname -I  # display all network addresses of the host
 netstat -i  # show network interfaces
+grep -rHin "string to be searched" /where/to/search  # search all text files for a string
 ```
