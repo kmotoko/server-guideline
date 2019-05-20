@@ -1,6 +1,7 @@
 ## Table of Contents
 + [Work in Progress](#work-in-progress)
 + [Create a non-root user](#create-a-non-root-user)
++ [Network Config](#network-config)
 + [SSH](#ssh)
     + [SSH keys](#ssh-keys)
     + [SSH daemon config](#ssh-daemon-config)
@@ -26,29 +27,24 @@
 + [Zabbix](#Zabbix)
   + [Install and Config LAMP Stack](#install-and-config-lamp-stack)
   + [Zabbix Server](#zabbix-server)
+  + [Zabbix Agent](#zabbix-agent)
++ [Useful Commands](#useful-commands)
 
 
 ## Work in Progress
 + In SSH daemon config: `AllowStreamLocalForwarding no  # it does not exist in the man page`
 + SSH: 2fa implementation
 + IP spoofing protection: check nsswitch config (could not find corresponding key at this time).
-+ Sysctl config: `kernel.sysrq` should it be disabled.
 + Sysctl config: Fine tune mentioned variables.
 + Date and time: Check where the default NTP server list is.
 + DMARC: Check how to implement a DMARC record.
 + rkhunter: Re-check docs
-+ Mysql: Better error handling and character encoding stuff
-+ Mysql: Host vs bind-address?
-+ Mysql: bind_address or bind-address?
-+ Mysql: might wanna remove tls version.
-+ Kernel: Auto restart at kernel panic
 + Updates: Unattended upgrades for security patches (or should it be unattended???).
 + iptables: Rate limiting and cloudflare dilemma, since they do not forward client IPs.
-+ iptables: Only allow connections from cloudflare.
++ iptables: Only allow http/https connections from cloudflare.
 + iptables: limit logging
 + Nginx and Gunicorn setup and config.
 + Logwatch and tiger, lynis etc... or any other HIDS.
-+ Zabbix: local_infile permission and mysqld config --> Is this config necessary?
 + Zabbix: subdomain, ssl, lets encrypt docs.
 + Zabbix: Zabbix agent in the client machine.
 + Zabbix: Apache security
@@ -63,8 +59,11 @@ sudo apt-get install sudo  # if not installed by default
 adduser example_user
 adduser example_user sudo  # add to sudoers
 exit  # disconnect from server
-ssh example_user@xxx.x.xx.xx # log back in as limited user
+ssh example_user@xxx.x.xx.xx  # log back in as limited user
 ```
+
+## Network Config
+After Ubuntu >=17.10, a new tool called `netplan` is used, instead of `/etc/network/interfaces`. Configs resides in `/etc/netplan/`. Depending on the cloud/vps provider, naming of config files might change e.g. `01-netcfg.yaml` or `50-cloud-init.yaml` etc. There you can configure static IP addresses, nameservers, network interfaces and so on. Usually it is pre-configured with cloud/vps providers, you might tweak it though.
 
 ## SSH
 ### SSH keys
@@ -93,7 +92,8 @@ In the server:, edit `/etc/ssh/sshd_config` to include the following
 ```
 IgnoreRhosts yes
 AddressFamily inet  # listen only on IPV4. Could be "AddressFamily inet6" for ipv6. This only affects sshd.
-LogLevel INFO
+LogLevel VERBOSE
+SyslogFacility AUTH
 StrictModes yes
 PermitRootLogin no
 PermitEmptyPasswords no
@@ -104,32 +104,46 @@ PubkeyAuthentication yes
 HostbasedAuthentication no
 HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,ssh-rsa-cert-v01@openssh.com,ssh-ed25519,ssh-rsa
 # Idle client timeout
-ClientAliveInterval 900
+ClientAliveInterval 300
 # Number of times to send the encrypted alive message before disconnecting clients if no response are received
-ClientAliveCountMax 0
+ClientAliveCountMax 3
 AllowGroups ssh-user
 # Disable SSH version 1
 Protocol 2
 Port 2112
+ListenAddress <Public_or_Priv_IP>
 KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
-MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
-MaxSessions 8
-MaxStartups 8
-MaxAuthTries 8
-UseDNS No
-X11Forwarding No  # opens a channel from the server back to the client and the server can send X11 commands back to the client
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+KerberosAuthentication no
+KerberosOrLocalPasswd no
+KerberosTicketCleanup yes
+GSSAPIAuthentication no
+GSSAPICleanupCredentials yes
+IgnoreUserKnownHosts yes
+LoginGraceTime 30s
+MaxSessions 10
+MaxStartups 10:30:100
+MaxAuthTries 2
+UseDNS no
+X11UseLocalhost yes
+X11Forwarding no  # opens a channel from the server back to the client and the server can send X11 commands back to the client
 # Port-forwarding (SSH tunneling)-related
 # These are important security concerns
 AllowTcpForwarding no
 AllowStreamLocalForwarding no  # Check this back, it does not exist in the man page
+AllowAgentForwarding no
 GatewayPorts no
 PermitTunnel no
+TCPKeepAlive no
+PrintLastLog no
+Banner none
+DebianBanner no
 ```
+Remove all permissions from group and others (but not the owner) on `/etc/ssh/sshd_config`: `sudo chmod 600 /etc/ssh/sshd_config`
 
 Then restart the sshd:
 ```shell
-sudo systemctl status sshd
 sudo systemctl enable sshd
 sudo systemctl restart sshd
 ```
@@ -137,6 +151,16 @@ sudo systemctl restart sshd
 ### SSH client config
 ```
 Host *
+    PermitLocalCommand no
+    Tunnel no
+    GSSAPIAuthentication no
+    GSSAPIDelegateCredentials no
+    HostbasedAuthentication no
+    ForwardX11 no
+    ForwardAgent no
+    CheckHostIP yes
+    Protocol 2
+    BatchMode no
     Port 2112
     PasswordAuthentication no
     ChallengeResponseAuthentication no
@@ -145,7 +169,7 @@ Host *
     PubkeyAuthentication yes
     HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,ssh-rsa-cert-v01@openssh.com,ssh-ed25519,ssh-rsa
     Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
-    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
 ```
 
 To test: `sshd -t`
@@ -242,9 +266,8 @@ Edit the appropriate file to include the following:
 ### GENERAL SYSTEM SECURITY OPTIONS ###
 ###
 
-# Controls the System Request debugging functionality of the kernel
-# Check this value
-#kernel.sysrq = 0
+# Restart after X seconds in case of kernel panic
+kernel.panic = 20
 
 # Enable ExecShield protection
 kernel.randomize_va_space = 2
@@ -325,6 +348,24 @@ net.ipv4.conf.default.secure_redirects = 0
 net.ipv6.conf.all.accept_redirects = 0
 net.ipv6.conf.default.accept_redirects = 0
 
+# Disable acceptance of IPv6 router solicitations messages
+net.ipv6.conf.default.router_solicitations = 0
+
+# Disable Accept Router Preference from router advertisement
+net.ipv6.conf.default.accept_ra_rtr_pref = 0
+
+# Disable learning Prefix Information from router advertisement
+net.ipv6.conf.default.accept_ra_pinfo = 0
+
+# Disable learning Hop limit from router advertisement
+net.ipv6.conf.default.accept_ra_defrtr = 0
+
+# Disable neighbor solicitations to send out per address
+net.ipv6.conf.default.dad_transmits = 0
+
+# Assign one global unicast IPv6 addresses to each interface
+net.ipv6.conf.default.max_addresses = 1
+
 # Enable Log Spoofed Packets, Source Routed Packets, Redirect Packets
 net.ipv4.conf.all.log_martians = 1
 net.ipv4.conf.default.log_martians = 1
@@ -343,6 +384,12 @@ net.ipv4.conf.all.bootp_relay = 0
 # Don't proxy arp for anyone
 net.ipv4.conf.all.proxy_arp = 0
 
+# Modes for sending replies in response to received ARP requests that resolve local target IP addresses
+net.ipv4.conf.all.arp_ignore = 1
+
+# Restriction levels for announcing the local source IP address from IP packets in ARP requests sent on interface
+net.ipv4.conf.all.arp_announce = 2
+
 # Turn on the tcp_timestamps, accurate timestamp make TCP congestion control algorithms work better
 net.ipv4.tcp_timestamps = 1
 
@@ -356,6 +403,13 @@ net.ipv4.icmp_echo_ignore_broadcasts = 1
 
 # Enable bad error message Protection
 net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# ICMP ratelimit
+# Affected ICMP types defines in icmp_ratemask
+net.ipv4.icmp_ratelimit = 100
+
+# ICMP ratemask
+net.ipv4.icmp_ratemask = 88089
 
 # Allowed local port range
 net.ipv4.ip_local_port_range = 16384 65535
@@ -493,6 +547,12 @@ net.ipv4.tcp_reordering = 3
 net.ipv4.tcp_fastopen = 3
 ```
 
+Removed the following as it can cause serious data loss in the event of data loss. Instead of disabling, you should physically secure the device.
+```
+# Controls the System Request debugging functionality of the kernel
+kernel.sysrq = 0
+```
+
 ## Mandatory Access Control
 Do not use 2 Linux Security module at the same time, i.e. SELinux and Apparmor. CentOS comes with SELinux by default. In Debian/Ubuntu, it is better to go with Apparmor.
 
@@ -610,6 +670,112 @@ At the end of the file (crontab), add:
 
 which means it will run at 4:00AM.
 
+## Nginx
+```shell
+sudo apt update
+sudo apt install nginx
+sudo systemctl enable nginx
+```
+By default, nginx serves files from `/var/www/html` dir. It is highly recommended to configure nginx with the *server blocks* (apache equivalent: *virtual host*), which allow a single web server to serve multiple websites if needed.
++ Credentials Storage Location/SSL certificate: `mkdir /root/certs/example.com/`, move your certificate(s) and key(s) into that folder.
+Restrict permissions on the key file: `chmod 400 /root/certs/example.com/example.com.key`.
++ A Diffie-Hellman parameter is a set of randomly generated data used when establishing Perfect Forward Secrecy during initiation of an HTTPS connection. The default size is usually 1024 or 2048 bits, depending on the server’s OpenSSL version, but a 4096 bit key will provide greater security.
+```
+cd /root/certs/example.com
+openssl genpkey -genparam -algorithm DH -out /root/certs/example.com/dhparam4096.pem -pkeyopt dh_paramgen_prime_len:4096
+```
+
+Generate configs like:
++ Create root directory at `/var/www/example.com/`
++ Create and config `/etc/nginx/conf.d/example.com.conf`
+```
+server {
+    listen              <public_ipv4>:80;
+    listen              [<public_ipv6>]:80;
+    server_name         example.com www.example.com;
+    return 301          https://example.com$request_uri;
+    return 301          https://www.example.com$request_uri;
+    }
+
+server {
+    listen              <public_ipv4>:443 ssl http2 default_server;
+    listen              [<public_ipv6>]:443 ssl http2 default_server;
+    server_name         example.com www.example.com;
+    root                /var/www/example.com;
+    index               index.html;
+
+    location / {
+         proxy_cache    one;
+            proxy_pass  http://localhost:8000;
+    }
+
+    gzip             on;
+    gzip_comp_level  3;
+    gzip_types       text/plain text/css application/javascript image/*;
+}
+```
++ Changes we want nginx to apply universally are in the http block of `/etc/nginx/nginx.conf`:
+Static content compression: Enable `gzip` compression only for certain content (images, HTML, and CSS). Do not do this for other file types as it might lead to exploits (CRIME and BREACH).
+Disable server tokens to remove nginx version display to public. Unlike other directives, an add_header directive is not inherited from parent configuration blocks. If you have the directive in both, an add_header directive in a server block will override any in your http area. Replace ip-address and port with the URL and port of the upstream service whose files you wish to cache. For example, you would fill in 127.0.0.1:9000 if using WordPress. Directives you want NGINX to apply to all sites on your server should go into the http block of nginx.conf, including SSL/TLS directives. The directives below assume one website, or all sites on the server, using the same certificate and key. .pem format can also be used. SSL/TLS handshakes use a non-negligible amount of CPU power, so minimizing the amount of handshakes which connecting clients need to perform will reduce your system’s processor use. One way to do this is by increasing the duration of keepalive connections from 60 to 75 seconds. Maintain a connected client’s SSL/TLS session for 10 minutes before needing to re-negotiate the connection. OCSP Stapling, when enabled, NGINX will make OCSP requests on behalf of connecting browsers. The response received from the OCSP server is added to NGINX’s browser response, which eliminates the need for browsers to verify a certificate’s revocation status by connecting directly to an OCSP server.
+
+
+```
+user  nginx;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log warn;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #gzip  on;
+
+    include /etc/nginx/conf.d/*.conf;
+
+    server_tokens       off;
+    keepalive_timeout   75;
+
+    add_header          Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header          X-Content-Type-Options nosniff;
+    add_header          X-Frame-Options SAMEORIGIN;
+    add_header          X-XSS-Protection "1; mode=block";
+
+    ssl_certificate     /root/certs/example.com/example.com.crt;
+    ssl_certificate_key /root/certs/example.com/example.com.key;
+    ssl_ciphers         ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+    ssl_dhparam         /root/certs/example.com/dhparam4096.pem;
+    ssl_prefer_server_ciphers on;
+    ssl_protocols       TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    ssl_trusted_certificate /root/certs/example.com/cert.crt;
+
+    proxy_cache_path /var/www/example.com/cache/ keys_zone=one:10m inactive=60m use_temp_path=off;
+}
+```
+`sudo nginx -s reload`
+`openssl s_client -connect example.org:443 -tls1 -tlsextdebug -status`
+The return response should show a field of OCPS response data.
+
+
 ## MySQL
 ### Initial Setup
 ``` shell
@@ -628,12 +794,12 @@ sudo mysql_install_db  # or in later MySQL versions: sudo mysqld --initialize
 ALTER USER 'username'@'mysql_client_IP' PASSWORD EXPIRE INTERVAL 0 DAY;
 FLUSH PRIVILEGES;  # reload the stored user information
 ```
-Remember that even if you edit the config file, if you do not restart `mysqld`, it will not take effect for the users created in subsequent steps. Thus quickly edit `/etc/mysql/my.cnf` to include the following:
+Remember that even if you edit the config file, if you do not restart `mysql daemon`, it will not take effect for the users created in subsequent steps. Thus quickly edit `/etc/mysql/my.cnf` to include the following:
 ```
 [mysqld]
 default_password_lifetime=0
 ```
-Restart by `sudo systemctl restart mysqld`
+Restart by `sudo systemctl restart mysql`
 
 + MySQL Root account should never be used to connect a web app/monitoring server to a MySQL server. Create other accounts with restrictive privileges for these purposes. **If using Django, create two users: one for the daily usage with very restrictive permissions, the other for migrations.**. In general, use a different user for each web applications connecting to the database. If one application gets compromised and the attacker has access to the database, they will not be able to access other databases.
 ```
@@ -657,27 +823,67 @@ user=mysql
 
 ```
 [mysqld]
-bind_address="IPv4_or_IPv6_address"  # default is 127.0.0.1
+# set bind-address so that it listens on that ip and interface
+bind_address="DB_server_private_IPv4_or_IPv6"  # default is 127.0.0.1
 sql-mode="TRADITIONAL"
 transaction-isolation="READ-COMMITTED"
 default-storage-engine="InnoDB"
 character_set_server="utf8mb4"
 collation_server="utf8mb4_unicode_ci"
 character-set-client-handshake=OFF
-local_infile=0  # prevent reading files on the local filesystem even if the user has FILE privilege
+local_infile=OFF  # prevent reading files on the local filesystem even if the user has FILE privilege
+symbolic-links=OFF
+```
+Restart `sudo systemctl restart mysql`.
++ Generate TLS Certicate and Keys
+In the **DB server machine**:
+```
+# Generates in /var/lib/mysql
+sudo mysql_ssl_rsa_setup --uid=mysql
+# In modern MySQL versions, it auto checks for the cert and keys in mysql folders
+sudo systemctl restart mysql
+```
+Get the contents of `var/lib/mysql/ca.pem`, `/var/lib/mysql/client-cert.pem`, and `/var/lib/mysql/client-key.pem` as we will need them to configure the client machine.
+
+Establish trust in the **DB client machine**:
+```
+mkdir ~/client-ssl
+chmod 700 ~/client-ssl
+# Copy the contents from the corresponding files from the last step in these files
+nano ~/client-ssl/ca.pem
+nano ~/client-ssl/client-cert.pem
+nano ~/client-ssl/client-key.pem
+```
+Test the connection:
+`mysql -u remote_user -p -h mysql_server_IP --ssl-mode=REQUIRED --ssl-ca=~/client-ssl/ca.pem --ssl-cert=~/client-ssl/client-cert.pem --ssl-key=~/client-ssl/client-key.pem`
+Then if successful, in MySQL command prompt, check:
+```
+SHOW VARIABLES LIKE '%ssl%';
+STATUS;
+```
++ Enforce encryption. In `[mysqld]` section of `/etc/mysql/my.cnf` of the **DB server machine** add:
+```
 # Require clients to connect either using SSL
 # or through a local socket file
 require_secure_transport=ON
-symbolic-links=0
-tls_version="TLSv1.2"
+```
+Restart `sudo systemctl restart mysql`.
 
+In the **DB client machine**, add to the `[client]` section of `/etc/mysql/my.cnf`:
+```
 [client]
-bind-address="IPv4_or_IPv6_address"
+ssl-mode="REQUIRED"
+ssl-ca="/path/to/client-ssl/ca.pem"
+ssl-cert="/path/to/client-ssl/client-cert.pem"
+ssl-key="/path/to/client-ssl/client-key.pem"
+bind-address="DB_client_private_IPv4_or_IPv6"
 default-character-set="utf8mb4"
 # prevent reading files on the local filesystem even if the user has FILE privilege
-local_infile=0
-tls_version=TLSv1.2
+local-infile=0
 ```
+Then test the connection as before.
+**Important:** When setting the paths and permissions for the ssl certs and keys in the client machine, consider the user that is running django. It is the one that at least needs the read permissions. However, you can give the write permissions to root.
+
 + Clear and disable the command history in `~/.mysql_history` since it might contain sensitive info:
 ```
 rm -f $HOME/.mysql_history
@@ -745,7 +951,7 @@ mysql -uroot -p
 mysql> CREATE DATABASE zabbix CHARACTER SET utf8 collate utf8_bin;
 mysql> CREATE USER 'zabbix'@'localhost' IDENTIFIED BY 'your_zabbix_mysql_password';
 mysql> FLUSH PRIVILEGES;
-mysql> GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, CREATE, CREATE TEMPORARY TABLES, DROP, EVENT, EXECUTE, INDEX, LOCK TABLES, REFERENCES, TRIGGER ON zabbix.* TO 'zabbix'@'localhost';
+mysql> GRANT SELECT, INSERT, UPDATE, DELETE, ALTER, ALTER ROUTINE, CREATE, CREATE ROUTINE, CREATE TEMPORARY TABLES, CREATE VIEW, DROP, EVENT, EXECUTE, INDEX, LOCK TABLES, REFERENCES, SHOW VIEW, TRIGGER ON zabbix.* TO 'zabbix'@'localhost';
 mysql> FLUSH PRIVILEGES;
 mysql> EXIT;
 zcat /usr/share/doc/zabbix-server-mysql/create.sql.gz | mysql -uzabbix -p zabbix
