@@ -10,6 +10,8 @@
 + [Firewall](#firewall)
 + [Prevent IP Spoofing](#prevent-ip-spoofing)
 + [Disable Unused Filesystems](#disable-unused-filesystems)
+    + [InSpec Checks](#inspec-checks)
++ [Login.defs Modifications](#login.defs-modifications)
 + [Sysctl Config](#sysctl-config)
 + [Mandatory Access Control](#mandatory-access-control)
 + [Linux User Account Management](#linux-user-account-management)
@@ -27,6 +29,7 @@
     + [General and Security Config](#general-and-security-config)
     + [Check the Config and Other Settings](#check-the-config-and-other-settings)
     + [Last Touch](#last-touch)
+    + [InSpec Checks](#inspec-checks)
 + [Zabbix](#Zabbix)
   + [Install and Config LAMP Stack](#install-and-config-lamp-stack)
   + [Zabbix Server](#zabbix-server)
@@ -52,6 +55,7 @@
 + Zabbix: Zabbix agent in the client machine.
 + Zabbix: Apache security
 + Zabbix: Check https://www.zabbix.com/documentation/4.0/manual/installation/requirements/best_practices
++ Check IDSs: Lynis, ossec, tiger, tripwire, aide, snort
 + Add references.
 
 ## Create a non-root user
@@ -295,6 +299,23 @@ install squashfs /bin/true
 install udf /bin/true
 ```
 Do not disable `vfat` as it is necessary for EFI.
+
+### InSpec Checks
+Ignore inspec warning about `vfat` as it is used for EFI.
+
+## Login.defs Modifications
+`/etc/login.defs` has shadow password suite configuration e.g. max number of days a password can be used, default permissions when a user creates a file (UMASK value) etc. UMASK value notation is like the opposite of file permission notation. If UMASK is 022, then corresponding file permission is 644 and folder permission is 755. Change the values to the following:
+```
+UMASK 027
+PASS_MAX_DAYS 60
+PASS_MIN_DAYS 7
+```
+**Important:** The new UMASK value affects newly created users, so do it before creating any additional user.
+**Important:** Note that (from login.defs comments):
+> If USERGROUPS_ENAB is set to "yes", that will modify this UMASK default value for private user groups, i. e. the uid is the same as gid, and username is
+the same as the primary group name: for these, the user permissions will be used as group permissions, e. g. 022 will become 002.
+
+Since the group and the owner will be the same for home dirs, our goal is not affected and 'other' users will not have any permission.
 
 ## Sysctl Config
 Change the kernel parameters at runtime. **Note:** From version 207 and 21x, systemd only applies settings from `/etc/sysctl.d/*.conf`. If you had customized `/etc/sysctl.conf`, you need to rename it as `/etc/sysctl.d/99-sysctl.conf`. If you had e.g. `/etc/sysctl.d/foo`, you need to rename it to `/etc/sysctl.d/foo.conf`.
@@ -833,6 +854,8 @@ sudo mysql_secure_installation  # safer defaults
 # mysql_install_db (below) might not be necessary depending on the distro
 # In that case, you should get a "File exists" error or alike
 sudo mysql_install_db  # or in later MySQL versions: sudo mysqld --initialize
+sudo systemctl enable mysql
+sudo systemctl start mysql
 ```
 ### General and Security Config
 + Use `mysql_secure_installation`.
@@ -869,8 +892,10 @@ user=mysql
 ```
 + Prevent local filesystem access of the mysql user, Disable symbolic links to tables, Enforce encrypted connections, Specify bind address by editing `/etc/mysql/my.cnf` to include (place after includedirs to prevent being overridden):
 
+**Important:** This assumes `/var/log/mysql/` directory exists for the general logs. Check it first.
 ```
 [mysqld]
+user=mysql  # include again
 # set bind-address so that it listens on that ip and interface
 bind_address="DB_server_private_IPv4_or_IPv6"  # default is 127.0.0.1
 sql-mode="TRADITIONAL"
@@ -879,8 +904,17 @@ default-storage-engine="InnoDB"
 character_set_server="utf8mb4"
 collation_server="utf8mb4_unicode_ci"
 character-set-client-handshake=OFF
-local_infile=OFF  # prevent reading files on the local filesystem even if the user has FILE privilege
-symbolic-links=OFF
+general-log-file="/var/log/mysql/mysql.log"
+general-log=1
+local-infile=0  # prevent reading files on the local filesystem even if the user has FILE privilege
+skip-symbolic-links=1
+symbolic-links=0
+allow-suspicious-udfs=0
+automatic-sp-privileges=0
+skip-show-database
+safe-user-create=1
+secure-file-priv="/tmp"
+secure-auth=1
 ```
 Restart `sudo systemctl restart mysql`.
 + Generate TLS Certicate and Keys
@@ -962,6 +996,11 @@ Change the mysql `root` account name.
 UPDATE mysql.user SET user=<newrootname> WHERE user='root';
 FLUSH PRIVILEGES;
 ```
+
+### InSpec Checks
+You can ignore the following InSpec tests:
+1) /etc/mysql/my.cnf should not be readable by others --> If you take the permission from others, mysql daemon won't be able to read the config as well. Do not do it.
+2) /var/log//mysql.log should be owned by "mysql" and File /var/log//mysql.log should be grouped into "adm" --> Log folder location in our setup is different and both the owner and the group belongs to `mysql` by mysql defaults.
 
 ## Determine and disable running services
 Check network services: `sudo ss -atpu`. Check system services and daemons: `sudo systemctl list-units --all`
