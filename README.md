@@ -36,6 +36,12 @@
   + [Zabbix Agent](#zabbix-agent)
 + [Useful Commands](#useful-commands)
 
+Follow this order when configuring a server:
+1. Do everything in `intro/` folder.
+2. Do everything in `networking/` folder.
+3. Do everything in `os/` folder.
+4. Do `ssh` in `services/` folder.
+5. Do appropriate service in `services/` folder.
 
 ## Work in Progress
 + In SSH daemon config: `AllowStreamLocalForwarding no  # it does not exist in the man page`
