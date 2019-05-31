@@ -62,6 +62,8 @@ Follow this order when configuring a server:
 + Zabbix: Apache security
 + Zabbix: Check https://www.zabbix.com/documentation/4.0/manual/installation/requirements/best_practices
 + Check IDSs: Lynis, ossec, tiger, tripwire, aide, snort
++ Check InputTCPServerStreamDriverPermittedPeer options for rysylog server and ActionSendStreamDriverPermittedPeer option in rsyslog client.
++ Replace wazuh with ossec
 + Add references.
 
 ## Determine and disable running services
