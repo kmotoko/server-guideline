@@ -1,6 +1,12 @@
 ## Date and Time
 Set the timezone to UTC, install and config a network sync tool. Before it used to be `ntp` daemon but with systemd it is `timesyncd`. Config file can be found in `/etc/systemd/timesyncd.conf`. Check date, time and network sync status with `timedatectl`. If timezone is not correct, do `timedatectl list-timezones` to see the names of timezones and set it via `sudo timedatectl set-timezone your_time_zone`.
 
+## Apt
+By default, apt sources list uses http. Convert it to https.
+Do `apt-get update && apt-get install apt-transport-https`, then you can replace `http://` in `/etc/apt/sources.list` with `https://`.
+After that test it with `apt-get update`.
+Configure `sources.list` to include only the security updates and not the feature updates.
+
 ## Login.defs Modifications
 `/etc/login.defs` has shadow password suite configuration e.g. max number of days a password can be used, default permissions when a user creates a file (UMASK value) etc. UMASK value notation is like the opposite of file permission notation. If UMASK is 022, then corresponding file permission is 644 and folder permission is 755. Change the values to the following:
 ```
