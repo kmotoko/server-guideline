@@ -1,5 +1,9 @@
 ## Date and Time
-Set the timezone to UTC, install and config a network sync tool. Before it used to be `ntp` daemon but with systemd it is `timesyncd`. Config file can be found in `/etc/systemd/timesyncd.conf`. Check date, time and network sync status with `timedatectl`. If timezone is not correct, do `timedatectl list-timezones` to see the names of timezones and set it via `sudo timedatectl set-timezone your_time_zone`.
+Set the timezone to UTC, install and config a network sync tool. Before it used to be `ntp` daemon but with systemd it is `timesyncd`. Config file can be found in `/etc/systemd/timesyncd.conf`. Check date, time and network sync status with `timedatectl`. If timezone is not correct, do `timedatectl list-timezones` to see the names of timezones and set it via `sudo timedatectl set-timezone your_time_zone`. If `timedatectl` show that sync is disabled, enable it via:
+```shell
+sudo timedatectl set-ntp on
+sudo systemctl restart systemd-timesyncd.service
+```
 
 ## Apt
 By default, apt sources list uses http. Convert it to https.

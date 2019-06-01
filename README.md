@@ -48,7 +48,6 @@ Follow this order when configuring a server:
 + SSH: 2fa implementation
 + IP spoofing protection: check nsswitch config (could not find corresponding key at this time).
 + Sysctl config: Fine tune mentioned variables.
-+ Date and time: Check where the default NTP server list is.
 + DMARC: Check how to implement a DMARC record.
 + rkhunter: Re-check docs
 + Updates: Unattended upgrades for security patches (or should it be unattended???).
