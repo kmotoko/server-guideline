@@ -1,13 +1,21 @@
 *filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT DROP [0:0]
 
 # Block NULL packages
+-A INPUT -p tcp --tcp-flags ALL NONE -j LOG --log-prefix "[IPTABLES: NULL PACKET BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
 # XMAS packet
+-A INPUT -p tcp --tcp-flags ALL FIN,PSH,URG -j LOG --log-prefix "[IPTABLES: XMAS PACKET BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -p tcp --tcp-flags ALL FIN,PSH,URG -j DROP
+-A INPUT -p tcp --tcp-flags ALL ALL -j LOG --log-prefix "[IPTABLES: XMAS PACKET BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
 # Drop all new TCP conn that are not SYN (SYN flood)
+-A INPUT -p tcp ! --syn -m conntrack --ctstate NEW -j LOG --log-prefix "[IPTABLES: SYN FLOOD BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -p tcp ! --syn -m conntrack --ctstate NEW -j DROP
 # Drop INVALID packages
+-A INPUT -m conntrack --ctstate INVALID -j LOG --log-prefix "[IPTABLES: INVALID PACKET BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -m conntrack --ctstate INVALID -j DROP
 # Rate limit new tcp conn (SYN flood)
 -A INPUT -p tcp -m conntrack --ctstate NEW -m limit --limit <LIMIT_1>/second --limit-burst <LIMIT_2> -j ACCEPT
@@ -36,8 +44,11 @@
 -A OUTPUT -o <PRIVATE_INTERFACE> -p tcp --dport 10514 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
 -A OUTPUT -o <PRIVATE_INTERFACE> -p tcp --sport 10050 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 
+-A INPUT -j LOG --log-prefix "[IPTABLES: INPUT BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A INPUT -j DROP
+-A FORWARD -j LOG --log-prefix "[IPTABLES: FORWARD BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A FORWARD -j DROP
+-A OUTPUT -j LOG --log-prefix "[IPTABLES: OUTPUT BLOCK] " --log-level 4 -m limit --limit 3/min --limit-burst 10
 -A OUTPUT -j DROP
 
 COMMIT
