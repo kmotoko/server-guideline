@@ -1,0 +1,7 @@
+*filter
+
+-A INPUT -j DROP
+-A FORWARD -j DROP
+-A OUTPUT -j DROP
+
+COMMIT
