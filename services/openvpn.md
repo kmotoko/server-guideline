@@ -23,6 +23,10 @@ net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
 ```
 Apply the rules: `sudo sysctl --system`.
+**Important:** Again from Arch wiki:
+> If the system uses systemd-networkd to control the network interfaces, a per-interface setting for IPv4 is not possible, i.e. systemd logic propagates any configured forwarding into a global (for all interfaces) setting for IPv4. The advised work-around is to use a firewall to forbid forwarding again on selective interfaces. See the systemd.network(5) manual page for more information. The IPForward=kernel semantics introduced in a previous systemd release 220/221 to honor kernel settings does not apply anymore.
+
+Thus in iptables, allow forwarding only from/to a specific interface.
 
 Comment out the following line in `/etc/hosts`:
 ```
@@ -45,6 +49,8 @@ See the iptables rules. In addition, since you cannot restore table rules with `
 sudo iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o <PRIVATE_INTERFACE> -j MASQUERADE
 ```
 where `10.8.0.0/24` is the VPN subnet and `<PRIVATE_INTERFACE>` is the remote private LAN. Then, do: `sudo dpkg-reconfigure iptables-persistent`.
+
+**Important:** Do not forget to only allow forwarding from/to specific interface.
 
 ### Install OpenVPN
 + Install via
