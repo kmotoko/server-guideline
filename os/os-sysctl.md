@@ -125,9 +125,11 @@ net.ipv4.conf.all.bootp_relay = 0
 net.ipv4.conf.all.proxy_arp = 0
 
 # Modes for sending replies in response to received ARP requests that resolve local target IP addresses
+# Mode '1': reply only if the target IP address is local address configured on the incoming interface
 net.ipv4.conf.all.arp_ignore = 1
 
 # Restriction levels for announcing the local source IP address from IP packets in ARP requests sent on interface
+# Mode '2': ignore the source address in the IP packet and try to select local address that we prefer for talks with the target host
 net.ipv4.conf.all.arp_announce = 2
 
 # Turn on the tcp_timestamps, accurate timestamp make TCP congestion control algorithms work better
@@ -201,7 +203,7 @@ net.ipv4.tcp_retries1 = 3
 # keeps our cwnd large with the keep alive connections (kernel > 3.6)
 net.ipv4.tcp_slow_start_after_idle = 0
 
-# This will enusre that immediatly subsequent connections use the new values
+# This will ensure that immediately subsequent connections use the new values
 # ALWAYS COMES LAST
 net.ipv4.route.flush = 1
 net.ipv6.route.flush = 1
@@ -222,7 +224,7 @@ Use `sudo sysctl --system` to apply settings. **Important:** Check and make sure
 
 **Variable parameters:**Some of the parameters can change depending on the server specs (especially RAM). You need to adjust those according to the actual server. It would be a good idea to check the default parameter before changing those, as for some parameters the linux kernel adjust them automatically depending on the available resources.
 
-**Load the tcp_bbr module:** This is used in the sysctl.conf above. You can do `sudo modprobe tcp_bbr`, and the to stick it across reboots, add `/etc/modules-load.d/tcp_bbr.conf` file and just add the following line in it `tcp_bbr`. This is systemd-modules-load.service and it reads files from the above directory which contain kernel modules to load during boot in a static list. Then reboot and check if it is loaded by `sudo lsmod | grep tcp`. Actually, modern kernels loads modules as needed, but just to be safe...
+**Load the tcp_bbr module:** This is used in the sysctl.conf above. You can do `sudo modprobe tcp_bbr`, and to stick it across reboots, add `/etc/modules-load.d/tcp_bbr.conf` file and just add the following line in it `tcp_bbr`. This is systemd-modules-load.service and it reads files from the above directory which contain kernel modules to load during boot in a static list. Then reboot and check if it is loaded by `sudo lsmod | grep tcp`. Actually, modern kernels loads modules as needed, but just to be safe...
 
 
 ```
@@ -297,7 +299,7 @@ net.ipv4.tcp_reordering = 3
 net.ipv4.tcp_fastopen = 3
 ```
 
-Removed the following as it can cause serious data loss in the event of data loss. Instead of disabling, you should physically secure the device.
+Removed the following as it can cause serious data loss. Instead of disabling, you should physically secure the device.
 ```
 # Controls the System Request debugging functionality of the kernel
 kernel.sysrq = 0
