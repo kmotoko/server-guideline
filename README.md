@@ -53,7 +53,7 @@ Follow this order when configuring a server:
 + Updates: Unattended upgrades for security patches (or should it be unattended???).
 + iptables: Rate limiting and cloudflare dilemma, since they do not forward client IPs.
 + iptables: Only allow http/https connections from cloudflare.
-+ iptables: limit logging
++ iptables: limit logging, martians
 + Nginx and Gunicorn setup and config.
 + Logwatch and tiger, lynis etc... or any other HIDS.
 + Zabbix: subdomain, ssl, lets encrypt docs.
@@ -63,6 +63,8 @@ Follow this order when configuring a server:
 + Check IDSs: Lynis, ossec, tiger, tripwire, aide, snort
 + Check InputTCPServerStreamDriverPermittedPeer options for rysylog server and ActionSendStreamDriverPermittedPeer option in rsyslog client.
 + Replace wazuh with ossec
++ OpenVPN 2-factor auth
++ Postfix and logwatch mail sending config
 + Add references.
 
 ## Determine and disable running services
