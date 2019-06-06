@@ -1,19 +1,50 @@
 ## OpenVPN
-### Disable IPv6
-Not needed to access internal resources.
-Add the following to `/etc/sysctl.d/99-sysctl.conf`:
+### Considerations before starting
+Your VPN server might have all the following (at least two of them):
++ Public facing IP (public net)
++ Local network IP (private subnet)
++ VPN interface IP (tun interface)
+
+Now the important thing is to avoid subnet conflicts, meaning that the local subnet IPs and VPN interface subnet IPs should not share the same address space. Secondly, the OpenVPN client also should not share the same space as the remote local network subnet and the vpn subnet. If you can connect to the VPN server but cannot access to the resources in the remote local network, check if there is any overlap in the address spaces.
+Thus, here is the checklist before starting:
++ Check your public interface name
++ Check your private interface name and subnet
+These will be used in the configurations below.
+
+### Prerequisites: Packet forwarding, hosts config, and routing
++ IP forwarding and IPv6:
+Ensure that IP forwarding is turned on in the kernel. IP forwarding allows the kernel to pass packets from one interface to another. Also, IPv6 is not needed to access internal resources.Since we are going to shut down ipv6, **remove the ipv6 related settings** from this guide's sysctl config. Then, **remove the lines about the ipv4 forwarding** as it will be enabled for the vpn server. Add the following to `/etc/sysctl.d/99-sysctl.conf` just before the part where you flush ipv4 and ipv6 config:
+
 ```
+net.ipv4.ip_forward = 1
+
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
-net.ipv6.conf.eth0.disable_ipv6 = 1
 ```
-Pay attention to already-configured rules. Safe way is to append towards the end of the file, before flushing the net rules.
-Apply the rules: `sudo sysctl --system`
+Apply the rules: `sudo sysctl --system`.
+
 Comment out the following line in `/etc/hosts`:
 ```
 #::1     localhost ip6-localhost ip6-loopback
 ```
+
++ Routing
+From arch wiki:
+> By default, all IP packets on a LAN addressed to a different subnet get sent to the default gateway. If the LAN/VPN gateway is also the default gateway, there is no problem and the packets get properly forwarded. If not, the gateway has no way of knowing where to send the packets. There are a couple of solutions to this problem.
+    + Add a static route to the default gateway routing the VPN subnet to the LAN/VPN gateway's IP address.
+    + Add a static route on each host on the LAN that needs to send IP packets back to the VPN.
+    + Use iptables' NAT feature on the LAN/VPN gateway to masquerade the incoming VPN IP packets.
+
+Therefore, the solution will involve NAT (Network Address Translation).
+> NAT generally involves "re-writing the source and/or destination addresses of IP packets as they pass through a router or firewall"
+
+### Iptables config
+See the iptables rules. In addition, since you cannot restore table rules with `iptables-restore` from `rules.v4` and `rules.v6`, after restoring and saving the `INPUT`, `OUTPUT` and `FORWARD` rules, do:
+```shell
+sudo iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o <PRIVATE_INTERFACE> -j MASQUERADE
+```
+where `10.8.0.0/24` is the VPN subnet and `<PRIVATE_INTERFACE>` is the remote private LAN. Then, do: `sudo dpkg-reconfigure iptables-persistent`.
 
 ### Install OpenVPN
 + Install via
@@ -49,7 +80,7 @@ make-cadir ~/ca && cd ~/ca
 # Replace X.X with the correct one
 ln -s openssl-1.X.X.cnf openssl.cnf
 ```
-+ The vars file created in /ca contains presets used by EasyRSA. Here you can specify a distinguished name for your certificate authority that will be passed to client certificates. Changing these fields is optional, but do it. Then, within `~/ca` dir: `source ./vars`. If it says something like `NOTE: If you run ./clean-all, I will be doing a rm -rf on /home/user/ca/keys`, run `./clean-all`.
++ The vars file created in /ca contains presets used by EasyRSA. Here you can specify a distinguished name for your certificate authority that will be passed to client certificates. Changing these fields is optional, but do it. Also change `export KEY_SIZE=2048` to `4096` since OpenVPN docs recommends the same size for the Diffie-Hellman parameter and the RSA key size. Then, within `~/ca` dir: `source ./vars`. If it says something like `NOTE: If you run ./clean-all, I will be doing a rm -rf on /home/user/ca/keys`, run `./clean-all`.
 
 + Create server credentials
 A root certificate, sometimes called a Certificate Authority, is the certificate and key pair that will be used to generate key pairs for clients and intermediate authorities (on this VPN server there are none). At each prompt, add or edit the information to be used in your certificate, or leave them blank. Use your VPN server’s hostname or some other identifier as the Common Name. **Important:** When using `build-ca`, also fill in the challenge password.
@@ -74,6 +105,7 @@ cd ~/ca && source ./vars && ./build-key-pass client1
 
 ### Server config file
 Edit/create `/etc/openvpn/server.conf`:
+Change `PRIVATE_NET_SUBNET` with your actual one.
 ```
 dev tun
 persist-key
@@ -96,7 +128,11 @@ key /etc/openvpn/server/server.key
 dh /etc/openvpn/server/dhp4096.pem
 
 # The VPN's address block starts here.
-server 10.89.0.0 255.255.255.0
+server 10.8.0.0 255.255.255.0
+
+#  OpenVPN server can ‘push’ a route to the OpenVPN client
+# to make it aware of the private network
+push "route PRIVATE_NET_SUBNET 255.255.255.0"
 
 explicit-exit-notify 1
 
@@ -123,6 +159,9 @@ log /var/log/openvpn.log
 verb 3
 ```
 
+**Important:** `push "route PRIVATE_NET_SUBNET 255.255.255.0"` is important to access the private net resources from the VPN client. It dictates the client that a private subnet exists on the remote network.
+
+**Important:** It is generally recommended to use OpenVPN over UDP, because TCP over TCP is a bad idea, see: http://sites.inka.de/bigred/devel/tcp-tcp.html.
 ### Client config file
 OpenVPN’s client-side configuration file is client.ovpn. When you import an OpenVPN profile, the location of the directory where the credentials are stored doesn’t matter, but this .ovpn file needs to be in the same directory as the client certificate and all other credentials. OpenVPN does not refer to any of these files after importing and they do not need to remain on the client system.
 Create `client.ovpn` file:
@@ -160,7 +199,7 @@ tls-crypt ta.key
 ```
 
 ### Start OpenVPN daemon
-**Important:** Below code will scan the /etc/openvpn directory on the server for files with a .conf extension. For every file that it finds, it will spawn a VPN daemon (server instance) so make sure you don’t have a client.conf or client.ovpn file in there.
+**Important:** Below code will scan the `/etc/openvpn` directory on the server for files with a .conf extension. For every file that it finds, it will spawn a VPN daemon (server instance) so make sure you don’t have a `client.conf` or `client.ovpn` file in there.
 ```shell
 sudo systemctl enable openvpn.* && sudo systemctl start openvpn.*
 # Check it
