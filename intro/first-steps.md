@@ -11,7 +11,23 @@ Do `apt-get update && apt-get install apt-transport-https`, then you can replace
 After that test it with `apt-get update`.
 Configure `sources.list` to include only the security updates and not the feature updates.
 
-## Login.defs Modifications
+
+## Linux User Account Management
+### Existing Users
+Set owner of the `$HOME` to you and remove the world-readable bit:
+```shell
+chown myuser:myuser $HOME
+chmod 750 $HOME
+```
+### adduser.conf Modifications
+`adduser` is the recommended way for adding users. Change the default permissions for the users that **will be** created. This has no effect on existing users. Change `DIR_MODE` in `/etc/adduser.conf`:
+```
+DIR_MODE=0750
+```
+
+### login.defs Modifications
+In addition to `adduser` command, there is an older (and discouraged) one, `useradd`. Change the `UMASK` value there to prevent accidental bypasses.
+
 `/etc/login.defs` has shadow password suite configuration e.g. max number of days a password can be used, default permissions when a user creates a file (UMASK value) etc. UMASK value notation is like the opposite of file permission notation. If UMASK is 022, then corresponding file permission is 644 and folder permission is 755. Change the values to the following:
 ```
 UMASK 027
@@ -25,7 +41,7 @@ the same as the primary group name: for these, the user permissions will be used
 
 Since the group and the owner will be the same for home dirs, our goal is not affected and 'other' users will not have any permission.
 
-## Linux User Account Management
+### Password Quality
 Use `pam_pwquality` instead of  the older `pam_cracklib` module.
 `sudo apt-get install libpam-pwquality`
 Edit `/etc/pam.d/common-password` (Debian/Ubuntu). Note that in other distros(CentOS/RedHat) it can be `/etc/pam.d/system-auth` or `/etc/pam.d/system-auth`, therefore do some research for those before using the following. It is important to leave some fallback modules. Example module names are `pam_unix.so `, `pam_deny.so` etc. Find the first line that a module config is written e.g. `password	[success=1 default=ignore]	pam_unix.so obscure sha512`. Add the following before that line. If the line already contains `pam_pwquality.so` as the module, edit the line instead of adding a new one.
@@ -40,7 +56,7 @@ Not clear if it is needed to set `/etc/security/pwquality.conf`.
 
 Password expiration config to be added.
 
-## Create a non-root user
+### Create a non-root user
 Log-in to the server via ssh.
 ```shell
 sudo apt-get update
