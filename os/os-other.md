@@ -6,10 +6,10 @@ install freevxfs /bin/true
 install jffs2 /bin/true
 install hfs /bin/true
 install hfsplus /bin/true
-install squashfs /bin/true
 install udf /bin/true
 ```
 Do not disable `vfat` as it is necessary for EFI.
+Do not disable `squashfs` as it is necessary for `snap`.
 
 ### InSpec Checks
 Ignore inspec warning about `vfat` as it is used for EFI.
