@@ -65,6 +65,8 @@ Follow this order when configuring a server:
 + Replace wazuh with ossec
 + OpenVPN 2-factor auth
 + Postfix and logwatch mail sending config
++ Password expiration config to be added to the password quality.
++ For the password quality section: Not clear if it is needed to set `/etc/security/pwquality.conf`.
 + Add references.
 
 ## Determine and disable running services
