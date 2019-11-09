@@ -18,6 +18,14 @@ fs.suid_dumpable = 0
 # Hide exposed kernel pointers
 kernel.kptr_restrict = 1
 
+# Restrict access to kernel logs
+kernel.dmesg_restrict = 1
+
+# Restrict ptrace scope
+# 2=only admin can ptrace
+# 2 is good for production servers
+kernel.yama.ptrace_scope = 2
+
 ###
 ### Deprecated/Not-in-use keys for security
 ###
@@ -55,7 +63,10 @@ vm.min_free_kbytes = 131072
 ### GENERAL NETWORK SECURITY OPTIONS ###
 ###
 
-#Prevent SYN attack, enable SYNcookies (they will kick-in when the max_syn_backlog reached)
+# Keep BPF JIT compiler disabled
+net.core.bpf_jit_enable = 0
+
+# Prevent SYN attack, enable SYNcookies (they will kick-in when the max_syn_backlog reached)
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_syn_retries = 2
 net.ipv4.tcp_synack_retries = 2
@@ -164,8 +175,6 @@ net.ipv6.conf.all.autoconf=0
 net.ipv6.conf.all.accept_ra=0
 net.ipv6.conf.default.autoconf=0
 net.ipv6.conf.default.accept_ra=0
-net.ipv6.conf.eth0.autoconf=0
-net.ipv6.conf.eth0.accept_ra=0
 
 ###
 ### TUNING NETWORK PERFORMANCE ###
