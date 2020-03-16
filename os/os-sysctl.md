@@ -26,6 +26,10 @@ kernel.dmesg_restrict = 1
 # 2 is good for production servers
 kernel.yama.ptrace_scope = 2
 
+# Protect links on the filesystem
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+
 ###
 ### Deprecated/Not-in-use keys for security
 ###
@@ -42,11 +46,23 @@ kernel.yama.ptrace_scope = 2
 ###
 
 # Do less swapping
-# If RAM is 1GB, dirty_ratio=10 is a sane value (meaning 1GB*0.1=100MB)
-# For higher RAMs, it can be a bit lower. 100-500MB as a result is a sane value.
 vm.swappiness = 30
-vm.dirty_ratio = 10
-vm.dirty_background_ratio = 5
+
+# Consensus: 10% for 1GB = 100MB, for 16GB 500MB is sane
+# Once you set dirty_ratio, a 1:2 ratio between
+# dirty_ratio : dirty_background_ratio is reasonable
+# Note that higher ratio values may increase performance
+# but it also increases the risk of data loss
+vm.dirty_ratio = 8
+vm.dirty_background_ratio = 4
+
+# Rule for minimum free KB of RAM: (installed_mem / num_of_cores) * 0.06
+vm.min_free_kbytes = 251658
+
+# On Debian 10, the default = 100
+# Decreased values might increase performance
+# NEVER EVER set it to 0
+vm.vfs_cache_pressure = 50
 
 # 50% overcommitment of available memory
 vm.overcommit_ratio = 50
@@ -56,15 +72,22 @@ vm.overcommit_memory = 0
 kernel.shmmax = 536870912
 kernel.shmall = 536870912
 
-# Keep at least 128MB of free RAM space available
-vm.min_free_kbytes = 131072
 
 ###
 ### GENERAL NETWORK SECURITY OPTIONS ###
 ###
 
-# Keep BPF JIT compiler disabled
-net.core.bpf_jit_enable = 0
+# Do not allow unprivileged users to run code in the kernel through BPF
+kernel.unprivileged_bpf_disabled = 1
+
+# Previously, it was recommended to disable the BPF JIT compiler
+# Some Spectre variants make use BPF interpreter
+# Thus, in newer kernels, BPF JIT compiler is always ON
+# if you set it to ON, also use hardening
+# bpf_jit_harden = 1 means harden the unprivileged code
+# Full hardening (value=2) might cripple some tracing/debugging functions
+net.core.bpf_jit_enable = 1
+net.core.bpf_jit_harden = 2
 
 # Prevent SYN attack, enable SYNcookies (they will kick-in when the max_syn_backlog reached)
 net.ipv4.tcp_syncookies = 1
@@ -117,10 +140,6 @@ net.ipv6.conf.default.dad_transmits = 0
 # Assign one global unicast IPv6 addresses to each interface
 net.ipv6.conf.default.max_addresses = 1
 
-# Enable Log Spoofed Packets, Source Routed Packets, Redirect Packets
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.conf.default.log_martians = 1
-
 # Decrease the time default value for tcp_fin_timeout connection
 net.ipv4.tcp_fin_timeout = 15
 
@@ -170,11 +189,17 @@ net.ipv4.ip_local_port_range = 16384 65535
 # Enable a fix for RFC1337 - time-wait assassination hazards in TCP
 net.ipv4.tcp_rfc1337 = 1
 
+# Disable logging martian packages
+# Otherwise it might cause DOS
+net.ipv4.conf.default.log_martians = 0
+net.ipv4.conf.all.log_martians = 0
+
 # Do not auto-configure IPv6
 net.ipv6.conf.all.autoconf=0
 net.ipv6.conf.all.accept_ra=0
 net.ipv6.conf.default.autoconf=0
 net.ipv6.conf.default.accept_ra=0
+
 
 ###
 ### TUNING NETWORK PERFORMANCE ###
